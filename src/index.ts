@@ -1,6 +1,6 @@
-import * as path from 'path';
-import * as fs from 'fs';
-import * as OSS from 'ali-oss';
+import { join, basename, parse } from 'path';
+import { readdirSync, statSync, createReadStream } from 'fs';
+import OSS from 'ali-oss';
 import { IApi } from 'umi';
 
 interface ConfigOptions {
@@ -15,15 +15,14 @@ interface ConfigOptions {
 interface DefaultOptions {
   deleteOrigin?: boolean;
   minFileSize?: number;
-  sourceDirectoryList: string[]
+  sourceDirectory: string
 }
 
-type MergeOptions = ConfigOptions & DefaultOptions 
+type MergeOptions = ConfigOptions & DefaultOptions
 
 const defaultOptions: DefaultOptions = {
-  deleteOrigin: false,
   minFileSize: 0,
-  sourceDirectoryList: ['src/assets']
+  sourceDirectory: 'src/assets'
 };
 
 function uploadToOSS(config: ConfigOptions, filePath: string): Promise<OSS.PutObjectResult> {
@@ -35,11 +34,7 @@ function uploadToOSS(config: ConfigOptions, filePath: string): Promise<OSS.PutOb
     endpoint: config.endpoint,
   });
 
-  return client.put(`${config.targetDirectory}/${path.basename(filePath)}`, fs.createReadStream(filePath));
-}
-
-function removeFile(filePath: string): void {
-  fs.unlinkSync(filePath);
+  return client.put(`${config.targetDirectory}/${basename(filePath)}`, createReadStream(filePath));
 }
 
 export default (api: IApi) => {
@@ -52,6 +47,37 @@ export default (api: IApi) => {
       },
     },
   });
+  api.chainWebpack((config) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      const { region, bucket, targetDirectory } = api.userConfig.oss;
+      if (!region || !bucket) {
+        api.logger.log('请配置有效的 OSS 参数\n');
+        return;
+      }
+      if (!targetDirectory) {
+        api.logger.log('请配置放置资源的桶目录\n');
+        return;
+      }
+      config.module
+        .rule('images')
+        .test(/\.(png|jpe?g|gif|webp)$/)
+        .use('url-loader')
+        .loader('url-loader')
+        .options({
+          limit: false, // 限制图片大小，小于该大小的图片将被转为 base64
+          fallback: {
+            loader: 'file-loader',
+            options: {
+              name: '[name].[hash:8].[ext]', // 输出文件名格式
+              publicPath:
+                `https://${bucket}.${region}.aliyuncs.com/${targetDirectory}/`, // 替换为你的 OSS 存储桶 URL
+            },
+          },
+        });
+    }
+  });
+
   api.onBuildComplete(({ err }) => {
     if (err) {
       return;
@@ -61,47 +87,45 @@ export default (api: IApi) => {
       ...api.userConfig.oss,
     };
 
-    const { 
-      accessKeyId, 
-      accessKeySecret, 
-      region, 
-      bucket, 
-      minFileSize = 0, 
-      sourceDirectoryList, 
-      deleteOrigin,  
+    const {
+      accessKeyId,
+      accessKeySecret,
+      region,
+      bucket,
+      minFileSize = 0,
+      sourceDirectory,
       endpoint,
       targetDirectory,
     } = options;
 
     if (!accessKeyId || !accessKeySecret || !region || !bucket) {
-      console.log('请配置有效的 OSS 参数');
+      api.logger.log('请配置有效的 OSS 参数\n');
       return;
     }
 
-    sourceDirectoryList?.forEach((directory: string): void => {
-      const assetsDir = path.join(api.cwd, directory);
-      const files = fs.readdirSync(assetsDir);
-      files.forEach(file => {
-        const filePath = path.join(assetsDir, file);
-        const { ext } = path.parse(file);
-        // 获取文件大小
-        const fileSize = fs.statSync(filePath).size;
-        if (typeof minFileSize === 'number' && minFileSize <= fileSize) {
-          if (ext !== '.js' && ext !== '.svg') {
-            removeFile(filePath);
-            uploadToOSS({ accessKeyId, accessKeySecret, region, bucket, endpoint, targetDirectory }, filePath)
-              .then(() => {
-                console.log(`图片 ${file} 上传至 OSS 成功`);
-                if (deleteOrigin) {
-                  removeFile(filePath);
-                }
-              })
-              .catch((error) => {
-                console.error(`图片 ${file} 上传至 OSS 失败: ${error}`);
-              });
-          }
+    if (!targetDirectory) {
+      api.logger.log('请配置放置资源的桶目录\n');
+      return;
+    }
+
+    const assetsDir = join(api.cwd, sourceDirectory);
+    const files = readdirSync(assetsDir);
+    files.forEach(file => {
+      const filePath = join(assetsDir, file);
+      const { ext } = parse(file);
+      // 获取文件大小
+      const fileSize = statSync(filePath).size;
+      if (typeof minFileSize === 'number' && minFileSize <= fileSize) {
+        if (ext === '.jpg' || ext === '.png' || ext === '.gif' || ext === '.jpeg') {
+          uploadToOSS({ accessKeyId, accessKeySecret, region, bucket, endpoint, targetDirectory }, filePath)
+            .then(() => {
+              api.logger.log(`图片 ${file} 上传至 OSS 成功`);
+            })
+            .catch((error) => {
+              api.logger.log(`图片 ${file} 上传至 OSS 失败: ${error}`);
+            });
         }
-      })
-    });
+      }
+    })
   });
 };

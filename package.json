@@ -1,6 +1,6 @@
 {
   "name": "umi-plugin-uploadoss",
-  "version": "0.0.6",
+  "version": "0.0.12",
   "description": "该插件可将静态图片在构建打包完成后上传到OSS，并自动在源码中进行映射使用最后删除原始文件",
   "main": "dist/cjs/index.js",
   "types": "dist/cjs/index.d.ts",
@@ -24,13 +24,14 @@
     "umi": "3.x"
   },
   "devDependencies": {
-    "@types/ali-oss": "^6.16.8",
     "father": "^4.2.3",
     "typescript": "^3.9.7",
     "umi": "^3.2.25",
     "umi-plugin-types": "^0.3.0"
   },
   "dependencies": {
-    "ali-oss": "^6.17.1"
+    "ali-oss": "~6.0.2",
+    "file-loader": "^6.2.0",
+    "url-loader": "^4.1.1"
   }
 }

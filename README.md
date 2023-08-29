@@ -6,7 +6,7 @@
 ## Install
 
 ```bash
-$ yarn add umi-plugin-uploadoss
+$ yarn add umi-plugin-uploadoss -D
 ```
 
 ## Config
